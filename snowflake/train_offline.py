@@ -31,6 +31,17 @@ def main() -> None:
         default="all",
     )
     parser.add_argument("--max-updates", type=int)
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Enable torch.compile; disabled by default to avoid a long silent first-step compilation",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="DataLoader workers per GPU rank (default: 4, or 16 total on four GPUs)",
+    )
     args = parser.parse_args()
     args.data_root = args.data_root.resolve()
     args.output_root = args.output_root.resolve()
@@ -50,18 +61,24 @@ def main() -> None:
     default_config = PROJECT_ROOT / "configs/default.yaml"
     config_text = default_config.read_text()
     config_text = config_text.replace("root: data/processed", f"root: {args.data_root}")
+    config_text = config_text.replace("num_workers: auto", f"num_workers: {args.num_workers}")
+    if not args.compile:
+        config_text = config_text.replace("compile: true", "compile: false")
     temp_config = args.output_root / "snowflake-default.yaml"
     temp_config.parent.mkdir(parents=True, exist_ok=True)
     temp_config.write_text(config_text)
 
     env = os.environ.copy()
     env["BTC_DATA_ROOT"] = str(args.data_root)
+    env["PYTHONUNBUFFERED"] = "1"
+    env.setdefault("TORCH_NCCL_ASYNC_ERROR_HANDLING", "1")
     env["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(SRC_ROOT), env.get("PYTHONPATH", "")) if part
     )
     for model in candidates:
         command = [
             sys.executable,
+            "-u",
             "-m",
             "torch.distributed.run",
             "--standalone",
@@ -77,6 +94,11 @@ def main() -> None:
         ]
         if args.max_updates:
             command += ["--max-updates", str(args.max_updates)]
+        print(
+            f"\nLaunching {model} with {gpus} DDP ranks, "
+            f"{args.num_workers} data workers/rank, torch.compile={args.compile}",
+            flush=True,
+        )
         subprocess.run(command, check=True, env=env, cwd=PROJECT_ROOT)
 
 
