@@ -21,6 +21,38 @@ if str(SRC_ROOT) not in sys.path:
 from btc_predictor.hardware import detect_hardware, recommended_profile  # noqa: E402
 
 
+def verify_parquet_materialized(root: Path) -> list[Path]:
+    files = sorted(root.rglob("*.parquet"))
+    if not files:
+        raise SystemExit(f"No offline Parquet shards found under {root}")
+    invalid: list[Path] = []
+    lfs_pointers: list[Path] = []
+    for path in files:
+        with path.open("rb") as handle:
+            header = handle.read(64)
+            if header.startswith(b"version https://git-lfs.github.com/spec/v1"):
+                lfs_pointers.append(path)
+                continue
+            if not header.startswith(b"PAR1"):
+                invalid.append(path)
+                continue
+            handle.seek(-4, 2)
+            if handle.read(4) != b"PAR1":
+                invalid.append(path)
+    if lfs_pointers:
+        example = lfs_pointers[0]
+        raise SystemExit(
+            f"Dataset is not materialized: {len(lfs_pointers)}/{len(files)} files are Git LFS "
+            f"pointer text, for example {example}. Run 'git lfs pull' while online, or upload "
+            "the real data/processed directory to a Snowflake stage before offline training."
+        )
+    if invalid:
+        raise SystemExit(
+            f"Invalid/corrupt Parquet files: {len(invalid)}/{len(files)}; first: {invalid[0]}"
+        )
+    return files
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=Path, required=True)
@@ -45,8 +77,8 @@ def main() -> None:
     args = parser.parse_args()
     args.data_root = args.data_root.resolve()
     args.output_root = args.output_root.resolve()
-    if not any(args.data_root.rglob("*.parquet")):
-        raise SystemExit(f"No offline Parquet shards found under {args.data_root}")
+    parquet_files = verify_parquet_materialized(args.data_root)
+    print(f"Verified {len(parquet_files)} materialized Parquet shards", flush=True)
     hw = detect_hardware(args.data_root)
     report = {"detected": asdict(hw), "profile": recommended_profile(hw)}
     print(json.dumps(report, indent=2), flush=True)
