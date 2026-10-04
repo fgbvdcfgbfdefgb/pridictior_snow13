@@ -1,0 +1,67 @@
+seed: 1337
+data:
+  root: data/processed
+  symbol: BTCUSDT
+  venue: binance_spot
+  start: "2020-01-01"
+  end: null
+  frequency_seconds: 1
+  history_seconds: 43200
+  horizon_seconds: 1500
+  train_end: "2025-01-01"
+  validation_end: "2026-01-01"
+features:
+  windows_seconds: [5, 15, 30, 60, 300, 900, 3600, 14400, 43200]
+  clip_zscore: 8.0
+  output_dim: 96
+model:
+  architecture: patch_transformer
+  d_model: auto
+  layers: auto
+  heads: 12
+  dropout: 0.10
+  quantiles: [0.1, 0.5, 0.9]
+  recent_seconds: 1800
+  medium_stride: 10
+  long_stride: 60
+training:
+  precision: bf16
+  global_batch_size: 64
+  micro_batch_size: auto
+  gradient_accumulation: auto
+  learning_rate: 0.0002
+  weight_decay: 0.05
+  warmup_steps: 2000
+  max_updates: 200000
+  validate_every: 5000
+  checkpoint_every: 5000
+  gradient_clip: 1.0
+  delayed_reward_seconds: 1500
+  update_every_seconds: 1
+  sample_stride_seconds: 5
+  num_workers: auto
+  compile: true
+loss:
+  point_huber: 1.0
+  path_huber: 0.8
+  quantile: 0.25
+  first_difference: 0.20
+  second_difference: 0.08
+  temporal_consistency: 0.35
+  direction: 0.10
+selection:
+  score_weights:
+    mae_bps: 0.35
+    rmse_bps: 0.20
+    path_mae_bps: 0.20
+    direction_error: 0.10
+    instability_bps: 0.10
+    calibration_error: 0.05
+live:
+  provider: bybit
+  websocket_url: wss://stream.bybit.com/v5/public/spot
+  symbol: BTCUSDT
+  reconnect_max_seconds: 30
+  predict_every_seconds: 1
+  venue_anchor_half_life_seconds: 300
+  paper_trading_only: true

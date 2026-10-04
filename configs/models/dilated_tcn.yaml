@@ -1,0 +1,7 @@
+model:
+  architecture: dilated_tcn
+  channels: 512
+  blocks: 16
+  kernel_size: 5
+  dropout: 0.10
+  output_rank: 192

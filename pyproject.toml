@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "btc-price-predictor"
+version = "0.1.0"
+description = "Leakage-safe continual BTCUSDT 25-minute path forecasting"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = {text = "MIT"}
+authors = [{name = "pridictior_snow13 contributors"}]
+dependencies = [
+  "numpy>=2.1,<3",
+  "pandas>=2.2,<3",
+  "pyarrow>=18,<22",
+  "polars>=1.17,<2",
+  "pydantic>=2.10,<3",
+  "PyYAML>=6,<7",
+  "requests>=2.32,<3",
+  "tqdm>=4.67,<5",
+]
+
+[project.optional-dependencies]
+train = [
+  "torch>=2.5,<3",
+  "tensorboard>=2.18,<3",
+]
+live = [
+  "anywidget>=0.9,<1",
+  "marimo>=0.11,<1",
+  "plotly>=6,<7",
+  "websockets>=14,<16",
+]
+dev = [
+  "pytest>=8,<10",
+  "pytest-cov>=6,<8",
+  "ruff>=0.8,<1",
+]
+
+[project.scripts]
+btc-download = "btc_predictor.data.binance_download:main"
+btc-train = "btc_predictor.training.train:main"
+btc-select = "btc_predictor.training.select_model:main"
+btc-live = "btc_predictor.live.runner:main"
+btc-hardware = "btc_predictor.hardware:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

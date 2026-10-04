@@ -1,0 +1,9 @@
+model:
+  architecture: patch_transformer
+  d_model: 768
+  layers: 12
+  heads: 12
+  dropout: 0.10
+  patch_sizes: [15, 10, 6]
+  mlp_ratio: 4
+  output_rank: 192
