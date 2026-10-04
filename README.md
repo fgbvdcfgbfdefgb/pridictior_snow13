@@ -2,7 +2,7 @@
 
 A leakage-safe research pipeline that forecasts the complete **BTCUSDT price path for the next 1,500 seconds (25 minutes)** and refreshes that forecast every second.
 
-> **Status:** implementation, tests, a real-source sample, reproducible historical-data ingestion, offline Snowflake entry point, and MoLab live dashboard are included. Full 2020–present shards and trained checkpoints are large Git LFS artifacts; generate/push them using the documented commands. No pretrained model is represented as production-ready.
+> **Status:** implementation, tests, offline Snowflake entry point, MoLab live dashboard, and the complete finalized 2020-01-01–2026-10-03 dataset are included. The 5.7 GiB dataset is stored as 113 Git LFS Parquet objects; run `git lfs pull` after cloning. Trained checkpoints are not included because this workspace has no GPUs, and no untrained model is represented as production-ready.
 
 ## Design at a glance
 
@@ -65,7 +65,7 @@ CUDA PyTorch wheels can differ by host image. If Snowflake or MoLab already supp
 
 The canonical source is Binance's public market-data archive. The 1-second kline schema has OHLC, base/quote volume, trade count, and taker-buy volume. Binance states that spot timestamps from 2025-01-01 onward are microseconds; ingestion normalizes the complete series to milliseconds.
 
-At 2026-10-04, finalized 2020-01-01 through 2026-10-03 coverage spans **213,235,200 wall-clock seconds** before source gaps. Exact source gaps are determined rather than assumed; each absent wall-clock second is represented by a marked flat-price, zero-activity row so replay remains one-second regular.
+At 2026-10-04, finalized 2020-01-01 through 2026-10-03 coverage is **213,235,200 rows**: 213,086,061 source-observed seconds plus 149,139 explicitly marked gap rows. Validation found zero remaining gaps, duplicates, backwards timestamps, or non-finite core values. See [`data/manifests/dataset_summary.json`](data/manifests/dataset_summary.json).
 
 ```bash
 # Downloads completed months plus daily archives for the current partial month,

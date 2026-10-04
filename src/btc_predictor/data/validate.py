@@ -5,38 +5,53 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 
 
 def validate_dataset(root: Path) -> dict:
-    dataset = ds.dataset(root, format="parquet", partitioning="hive")
-    has_imputed = "is_imputed" in dataset.schema.names
-    columns = ["timestamp_ms", "close", "volume"] + (["is_imputed"] if has_imputed else [])
-    scanner = dataset.scanner(columns=columns, batch_size=262_144)
+    """Validate shards sequentially with bounded memory."""
+    files = sorted(root.rglob("*.parquet"))
+    if not files:
+        return {
+            "rows": 0,
+            "first_timestamp_ms": None,
+            "last_timestamp_ms": None,
+            "duplicates": 0,
+            "backwards": 0,
+            "gaps_over_one_second": 0,
+            "imputed_rows": 0,
+            "nonfinite": 0,
+            "valid": False,
+        }
     rows = duplicates = backwards = gaps = nonfinite = imputed = 0
     previous = None
     first = last = None
-    for batch in scanner.to_batches():
-        frame = batch.to_pandas()
-        ts = frame["timestamp_ms"].to_numpy()
-        if len(ts) == 0:
-            continue
-        first = int(ts[0]) if first is None else first
-        last = int(ts[-1])
-        if previous is not None:
-            delta = int(ts[0]) - previous
-            duplicates += int(delta == 0)
-            backwards += int(delta < 0)
-            gaps += int(delta > 1000)
-        delta = ts[1:] - ts[:-1]
-        duplicates += int((delta == 0).sum())
-        backwards += int((delta < 0).sum())
-        gaps += int((delta > 1000).sum())
-        nonfinite += int((~np.isfinite(frame[["close", "volume"]].to_numpy(dtype=float))).sum())
-        if has_imputed:
-            imputed += int(frame["is_imputed"].sum())
-        rows += len(frame)
-        previous = int(ts[-1])
+    for path in files:
+        parquet = pq.ParquetFile(path)
+        has_imputed = "is_imputed" in parquet.schema_arrow.names
+        columns = ["timestamp_ms", "close", "volume"] + (["is_imputed"] if has_imputed else [])
+        for batch in parquet.iter_batches(batch_size=65_536, columns=columns, use_threads=False):
+            ts = batch.column(0).to_numpy(zero_copy_only=False)
+            if len(ts) == 0:
+                continue
+            first = int(ts[0]) if first is None else first
+            last = int(ts[-1])
+            if previous is not None:
+                delta = int(ts[0]) - previous
+                duplicates += int(delta == 0)
+                backwards += int(delta < 0)
+                gaps += int(delta > 1000)
+            delta = ts[1:] - ts[:-1]
+            duplicates += int((delta == 0).sum())
+            backwards += int((delta < 0).sum())
+            gaps += int((delta > 1000).sum())
+            close = batch.column(1).to_numpy(zero_copy_only=False)
+            volume = batch.column(2).to_numpy(zero_copy_only=False)
+            nonfinite += int((~np.isfinite(close)).sum() + (~np.isfinite(volume)).sum())
+            if has_imputed:
+                imputed += int(batch.column(3).to_numpy(zero_copy_only=False).sum())
+            rows += len(ts)
+            previous = int(ts[-1])
     result = {
         "rows": rows,
         "first_timestamp_ms": first,

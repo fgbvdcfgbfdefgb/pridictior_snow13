@@ -1,0 +1,22 @@
+{
+  "coverage_end_utc": "2026-10-03T23:59:59Z",
+  "coverage_start_utc": "2020-01-01T00:00:00Z",
+  "frequency_seconds": 1,
+  "generated_at_utc": "2026-10-04T13:08:41.091948+00:00",
+  "imputed_rows": 149139,
+  "manifest_sha256": "c027802adfcd9a50ac5c7487bf2aacc54dba12d4cff56d6224547f318345f502",
+  "parquet_bytes": 6079273048,
+  "partitions": 113,
+  "rows": 213235200,
+  "schema_version": "binance-spot-kline-1s-v2-gap-explicit",
+  "source_observed_rows": 213086061,
+  "symbol": "BTCUSDT",
+  "validation": {
+    "backwards": 0,
+    "duplicates": 0,
+    "gaps_over_one_second": 0,
+    "nonfinite": 0,
+    "valid": true
+  },
+  "venue": "Binance spot"
+}
