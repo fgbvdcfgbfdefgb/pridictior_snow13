@@ -6,6 +6,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from btc_predictor.data.binance_download import convert_zip_to_parquet, plan_archives
+from btc_predictor.data.windows import ParquetWindowStream
 
 
 def test_closed_month_and_partial_month_plan():
@@ -14,6 +15,11 @@ def test_closed_month_and_partial_month_plan():
     assert "/monthly/" in plan[0].url
     assert [x.period for x in plan[1:]] == ["2020-02-01", "2020-02-02"]
     assert all("/daily/" in x.url for x in plan[1:])
+
+
+def test_hive_partition_date_supports_daily_filename():
+    path = Path("data/processed/year=2026/month=10/day=03.parquet")
+    assert ParquetWindowStream._partition_date(path) == date(2026, 10, 3)
 
 
 def test_converter_makes_missing_seconds_explicit(tmp_path):

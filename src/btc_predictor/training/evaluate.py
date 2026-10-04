@@ -41,7 +41,11 @@ def load_model(checkpoint: Path, device: torch.device):
 
 
 def partition_date(path: Path) -> date:
-    parts = {piece.split("=", 1)[0]: piece.split("=", 1)[1] for piece in path.parts if "=" in piece}
+    parts = {
+        piece.split("=", 1)[0]: piece.split("=", 1)[1].split(".", 1)[0]
+        for piece in path.parts
+        if "=" in piece
+    }
     return date(int(parts["year"]), int(parts["month"]), int(parts.get("day", 1)))
 
 
