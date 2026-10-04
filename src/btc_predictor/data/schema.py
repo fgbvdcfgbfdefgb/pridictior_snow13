@@ -26,6 +26,7 @@ MODEL_COLUMNS = (
     "trade_count",
     "taker_buy_base_volume",
     "taker_buy_quote_volume",
+    "is_imputed",
 )
 
-SCHEMA_VERSION = "binance-spot-kline-1s-v1"
+SCHEMA_VERSION = "binance-spot-kline-1s-v2-gap-explicit"

@@ -10,9 +10,10 @@ The downloader therefore:
 2. uses daily archives for an incomplete calendar month;
 3. processes one ZIP at a time so temporary storage remains bounded;
 4. normalizes timestamps to milliseconds;
-5. writes one Zstandard Parquet partition per source archive;
-6. records source and output SHA-256 hashes, row count and timestamp bounds;
-7. removes the temporary archive.
+5. inserts an explicit `is_imputed=true` flat-price/zero-activity row for each missing source second;
+6. writes one Zstandard Parquet partition per source archive;
+7. records source and output SHA-256 hashes, row/imputation counts and timestamp bounds;
+8. removes the temporary archive.
 
 The current UTC day cannot be finalized. “Till today” means finalized archives through yesterday plus a separately labeled live stream for today.
 

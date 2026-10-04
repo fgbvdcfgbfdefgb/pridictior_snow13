@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -49,6 +50,7 @@ class ManifestEntry:
     output: str
     output_sha256: str
     rows: int
+    imputed_rows: int
     min_timestamp_ms: int
     max_timestamp_ms: int
     downloaded_at_utc: str
@@ -119,13 +121,74 @@ def _timestamp_ms(series: pd.Series) -> pd.Series:
     return values.where(values < 10**15, values // 1000)
 
 
+def _imputed_rows(timestamps: np.ndarray, price: float) -> pd.DataFrame:
+    count = len(timestamps)
+    return pd.DataFrame(
+        {
+            "timestamp_ms": timestamps,
+            "open": price,
+            "high": price,
+            "low": price,
+            "close": price,
+            "volume": 0.0,
+            "quote_volume": 0.0,
+            "trade_count": pd.Series([0] * count, dtype="int64"),
+            "taker_buy_base_volume": 0.0,
+            "taker_buy_quote_volume": 0.0,
+            "is_imputed": True,
+        }
+    )
+
+
+def _fill_second_gaps(
+    frame: pd.DataFrame, previous_ts: int | None, previous_close: float | None
+) -> pd.DataFrame:
+    """Insert explicit flat/zero-activity rows for seconds absent from the source."""
+    observed_ts = frame["timestamp_ms"].to_numpy(dtype="int64")
+    if len(observed_ts) == 0:
+        return frame
+    delta = observed_ts[1:] - observed_ts[:-1]
+    if (delta <= 0).any() or (delta % 1000 != 0).any():
+        raise ValueError("timestamps must be unique integer seconds")
+
+    pieces: list[pd.DataFrame] = []
+    if previous_ts is not None and observed_ts[0] > previous_ts + 1000:
+        gap = np.arange(previous_ts + 1000, observed_ts[0], 1000, dtype="int64")
+        pieces.append(_imputed_rows(gap, float(previous_close)))
+
+    frame = frame.copy()
+    frame["is_imputed"] = False
+    expected = np.arange(observed_ts[0], observed_ts[-1] + 1000, 1000, dtype="int64")
+    if len(expected) != len(frame):
+        frame = frame.set_index("timestamp_ms").reindex(expected)
+        missing = frame["close"].isna()
+        frame["is_imputed"] = missing
+        filled_close = frame["close"].ffill()
+        for column in ("open", "high", "low", "close"):
+            frame[column] = frame[column].fillna(filled_close)
+        for column in (
+            "volume",
+            "quote_volume",
+            "trade_count",
+            "taker_buy_base_volume",
+            "taker_buy_quote_volume",
+        ):
+            frame[column] = frame[column].fillna(0)
+        frame["trade_count"] = frame["trade_count"].astype("int64")
+        frame.index.name = "timestamp_ms"
+        frame = frame.reset_index()
+    pieces.append(frame[list(MODEL_COLUMNS)])
+    return pd.concat(pieces, ignore_index=True) if len(pieces) > 1 else pieces[0]
+
+
 def convert_zip_to_parquet(
     archive: Path, output: Path, chunk_rows: int = 500_000
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp_output = output.with_suffix(".parquet.tmp")
     writer: pq.ParquetWriter | None = None
     total = 0
+    imputed_total = 0
     min_ts: int | None = None
     max_ts: int | None = None
     try:
@@ -142,6 +205,7 @@ def convert_zip_to_parquet(
                     dtype=str,
                 )
                 previous_ts: int | None = None
+                previous_close: float | None = None
                 for frame in chunks:
                     frame["timestamp_ms"] = _timestamp_ms(frame["open_time"])
                     for col in NUMERIC_FLOATS:
@@ -149,16 +213,25 @@ def convert_zip_to_parquet(
                     frame["trade_count"] = pd.to_numeric(
                         frame["trade_count"], errors="raise"
                     ).astype("int64")
-                    frame = frame[list(MODEL_COLUMNS)]
-                    ts = frame["timestamp_ms"].to_numpy()
-                    if len(ts) and (ts[1:] <= ts[:-1]).any():
+                    observed_columns = [c for c in MODEL_COLUMNS if c != "is_imputed"]
+                    frame = frame[observed_columns]
+                    observed_ts = frame["timestamp_ms"].to_numpy()
+                    if len(observed_ts) and (observed_ts[1:] <= observed_ts[:-1]).any():
                         raise ValueError(f"Non-increasing timestamps inside {archive}")
-                    if previous_ts is not None and len(ts) and int(ts[0]) <= previous_ts:
+                    if (
+                        previous_ts is not None
+                        and len(observed_ts)
+                        and int(observed_ts[0]) <= previous_ts
+                    ):
                         raise ValueError(f"Non-increasing timestamps across chunks in {archive}")
+                    frame = _fill_second_gaps(frame, previous_ts, previous_close)
+                    ts = frame["timestamp_ms"].to_numpy()
                     if len(ts):
                         previous_ts = int(ts[-1])
+                        previous_close = float(frame["close"].iloc[-1])
                         min_ts = int(ts[0]) if min_ts is None else min_ts
                         max_ts = int(ts[-1])
+                        imputed_total += int(frame["is_imputed"].sum())
                     table = pa.Table.from_pandas(frame, preserve_index=False)
                     if writer is None:
                         writer = pq.ParquetWriter(
@@ -176,7 +249,7 @@ def convert_zip_to_parquet(
         writer.close()
         writer = None
         os.replace(tmp_output, output)
-        return total, min_ts, max_ts
+        return total, min_ts, max_ts, imputed_total
     finally:
         if writer is not None:
             writer.close()
@@ -200,7 +273,7 @@ def ingest_one(
         LOG.info("download %s", item.url)
         download(item.url, archive, session)
         source_hash = sha256_file(archive)
-        rows, min_ts, max_ts = convert_zip_to_parquet(archive, item.output)
+        rows, min_ts, max_ts, imputed_rows = convert_zip_to_parquet(archive, item.output)
     entry = ManifestEntry(
         schema_version=SCHEMA_VERSION,
         source_url=item.url,
@@ -208,6 +281,7 @@ def ingest_one(
         output=item.output.as_posix(),
         output_sha256=sha256_file(item.output),
         rows=rows,
+        imputed_rows=imputed_rows,
         min_timestamp_ms=min_ts,
         max_timestamp_ms=max_ts,
         downloaded_at_utc=datetime.now(UTC).isoformat(),
@@ -243,7 +317,30 @@ def main() -> None:
             try:
                 ingest_one(item, args.manifest, session, args.force)
             except FileNotFoundError:
-                LOG.warning("archive not published yet: %s", item.url)
+                if "/monthly/" not in item.url:
+                    LOG.warning("archive not published yet: %s", item.url)
+                    continue
+                # A just-completed month can have daily files before its monthly
+                # bundle is published (normally the first Monday). Fall back
+                # without leaving a silent month-sized gap.
+                month = date.fromisoformat(item.period + "-01")
+                days = calendar.monthrange(month.year, month.month)[1]
+                LOG.warning("monthly archive unavailable; trying %d daily files", days)
+                for day_number in range(1, days + 1):
+                    day = date(month.year, month.month, day_number)
+                    filename = f"{args.symbol}-1s-{day.isoformat()}.zip"
+                    daily = Archive(
+                        day.isoformat(),
+                        f"{BASE}/daily/klines/{args.symbol}/1s/{filename}",
+                        args.output
+                        / f"year={day.year:04d}"
+                        / f"month={day.month:02d}"
+                        / f"day={day.day:02d}.parquet",
+                    )
+                    try:
+                        ingest_one(daily, args.manifest, session, args.force)
+                    except FileNotFoundError:
+                        LOG.warning("daily archive not published yet: %s", daily.url)
 
 
 if __name__ == "__main__":

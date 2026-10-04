@@ -65,7 +65,7 @@ CUDA PyTorch wheels can differ by host image. If Snowflake or MoLab already supp
 
 The canonical source is Binance's public market-data archive. The 1-second kline schema has OHLC, base/quote volume, trade count, and taker-buy volume. Binance states that spot timestamps from 2025-01-01 onward are microseconds; ingestion normalizes the complete series to milliseconds.
 
-At 2026-10-04, finalized 2020-01-01 through 2026-10-03 coverage spans **213,235,200 wall-clock seconds** before source gaps. Exact row counts and gaps are determined by validation, never assumed.
+At 2026-10-04, finalized 2020-01-01 through 2026-10-03 coverage spans **213,235,200 wall-clock seconds** before source gaps. Exact source gaps are determined rather than assumed; each absent wall-clock second is represented by a marked flat-price, zero-activity row so replay remains one-second regular.
 
 ```bash
 # Downloads completed months plus daily archives for the current partial month,

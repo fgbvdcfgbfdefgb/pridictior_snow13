@@ -10,8 +10,10 @@ import pyarrow.dataset as ds
 
 def validate_dataset(root: Path) -> dict:
     dataset = ds.dataset(root, format="parquet", partitioning="hive")
-    scanner = dataset.scanner(columns=["timestamp_ms", "close", "volume"], batch_size=262_144)
-    rows = duplicates = backwards = gaps = nonfinite = 0
+    has_imputed = "is_imputed" in dataset.schema.names
+    columns = ["timestamp_ms", "close", "volume"] + (["is_imputed"] if has_imputed else [])
+    scanner = dataset.scanner(columns=columns, batch_size=262_144)
+    rows = duplicates = backwards = gaps = nonfinite = imputed = 0
     previous = None
     first = last = None
     for batch in scanner.to_batches():
@@ -31,6 +33,8 @@ def validate_dataset(root: Path) -> dict:
         backwards += int((delta < 0).sum())
         gaps += int((delta > 1000).sum())
         nonfinite += int((~np.isfinite(frame[["close", "volume"]].to_numpy(dtype=float))).sum())
+        if has_imputed:
+            imputed += int(frame["is_imputed"].sum())
         rows += len(frame)
         previous = int(ts[-1])
     result = {
@@ -40,8 +44,9 @@ def validate_dataset(root: Path) -> dict:
         "duplicates": duplicates,
         "backwards": backwards,
         "gaps_over_one_second": gaps,
+        "imputed_rows": imputed,
         "nonfinite": nonfinite,
-        "valid": rows > 0 and duplicates == 0 and backwards == 0 and nonfinite == 0,
+        "valid": rows > 0 and duplicates == 0 and backwards == 0 and gaps == 0 and nonfinite == 0,
     }
     return result
 

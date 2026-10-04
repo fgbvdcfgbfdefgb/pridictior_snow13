@@ -8,6 +8,7 @@ Columns:
 - `open`, `high`, `low`, `close`
 - `volume`, `quote_volume`, `trade_count`
 - `taker_buy_base_volume`, `taker_buy_quote_volume`
+- `is_imputed` — true only when the source omitted a wall-clock second; OHLC is the previous close and all activity is zero
 
 Partitions use `data/processed/year=YYYY/month=MM/*.parquet`. Each monthly or daily archive becomes an independent Zstandard Parquet shard and a JSONL manifest record containing source URL, source SHA-256, output SHA-256, row count and timestamp range.
 
